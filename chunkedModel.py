@@ -24,8 +24,7 @@ class BatchModel(object):
         self.test_num = test_num
         self.dataPath = dataPath
 
-
-
+        # TODO use the names of the metrics from the folders names)
     def import_data(self, dataPath):
         self.dataPath = dataPath
         # combine all dates in 5M
@@ -130,9 +129,9 @@ class BatchModel(object):
         #self.history = self.model.fit(self.train_X, self.train_y, epochs=1000, batch_size=72,
          #                             validation_data=(self.test_X, self.test_y), verbose=2, shuffle=False)
 
-    def fit_model(self):
+    def fit_model(self, epochs_in, batch_size_in):
         # fit network
-        self.history = self.model.fit(self.train_X, self.train_y, epochs=50, batch_size=72,
+        self.history = self.model.fit(self.train_X, self.train_y, epochs=epochs_in, batch_size=batch_size_in,
                                       validation_data=(self.test_X, self.test_y), verbose=2, shuffle=False)
     def plot_history(self):
         # plot history
@@ -159,12 +158,6 @@ class BatchModel(object):
         plt.show()
         fig.savefig(self.dataPath + '\\plot3.png')
 
-    def write_to_csv(self, path):
-        with open(path+'results.csv', 'a') as results_file:
-            employee_writer = csv.writer(results_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-
-            employee_writer.writerow(['John Smith', 'Accounting', 'November'])
-            employee_writer.writerow(['Erica Meyers', 'IT', 'March'])
 
     def save_model(self):
         filename = 'finalized_model'+self.test_num+'.sav'
@@ -175,7 +168,6 @@ def main(args=None):
     test_num = args.test_num
     dataPath = args.path
     BM = BatchModel(test_num, dataPath)
-    # dataPath = "D:\\לימודים\\שנה ג\\סמסטר ב\\התמחות\\kobiBryent_US\\US-20200401T133445Z-001\\US"
     values = BM.import_data(dataPath)
 
     if not os.path.isdir(dataPath + '\\' + test_num):
@@ -185,12 +177,11 @@ def main(args=None):
     values = BM.normalize_features(values)
     #chunks
     for i in range(21):
-        print (i)
 
-        BM.split_train_test(values, args.train_size,i)
+        BM.split_train_test(values, args.train_size, i)
         if i == 0:
             BM.create_model()
-        BM.fit_model()
+        BM.fit_model(args.epochs, args.batch_size)
 
     BM.plot_history()
     BM.make_a_prediction()
@@ -203,6 +194,8 @@ if (__name__ == "__main__"):
     parser = argparse.ArgumentParser()
     parser.add_argument("path", help="Data path")
     parser.add_argument("train_size", type=float, help="Train size")
-    parser.add_argument("test_num", type=str, help="Test number")
+    parser.add_argument("test_num", type=str, help="Test num")
+    parser.add_argument("epochs", type=int, help="Epochs")
+    parser.add_argument("batch_size", type=int, help="Batch Size")
     args = parser.parse_args()
     main(args)

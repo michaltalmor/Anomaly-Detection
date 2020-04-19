@@ -99,8 +99,28 @@ class BatchModel(object):
         values = reframed.values
         return values
 
-    def split_train_test(self, values, trainSize, i):
-        n_train_hours = int(len(self.dataset) * trainSize)
+    def initial_model(self, values, train_size):
+        n_train_hours = int(len(self.dataset) * train_size)
+        train = values[:n_train_hours, :]
+        test = values[n_train_hours:, :]
+        # split into input and outputs
+        chunk_size = int(len(self.dataset)/31)
+        print(chunk_size)
+        i = args.initialize_size-1
+        train_X, train_y = train[i*chunk_size:((i*chunk_size)+chunk_size-1), :-1], \
+                           train[i*chunk_size:((i*chunk_size+chunk_size)-1), -1]
+        test_X, test_y = test[:, :-1], test[:, -1]
+        # reshape input to be 3D [samples, timesteps, features]
+        train_X = train_X.reshape((train_X.shape[0], 1, train_X.shape[1]))
+        test_X = test_X.reshape((test_X.shape[0], 1, test_X.shape[1]))
+
+        self.train_X = train_X
+        self.train_y = train_y
+        self.test_X = test_X
+        self.test_y = test_y
+
+    def split_train_test(self, values, train_size, i):
+        n_train_hours = int(len(self.dataset) * train_size)
         train = values[:n_train_hours, :]
         test = values[n_train_hours:, :]
         # split into input and outputs
@@ -149,12 +169,15 @@ class BatchModel(object):
         # Plot
         fig = plt.figure(2)
         plt.scatter(self.test_y, Predict)
+        #plt.set_ylim(ymin=0)
         plt.show(block=False)
         fig.savefig(self.dataPath + '\\plot2.png')
         fig =plt.figure(3)
         Test, = plt.plot(self.test_y)
         Predict, = plt.plot(Predict)
+        #plt.set_ylim(ymin=0)
         plt.legend([Predict, Test], ["Predicted Data", "Real Data"])
+        #plt.set_ylim(ymin=0)
         plt.show()
         fig.savefig(self.dataPath + '\\plot3.png')
 
@@ -175,6 +198,20 @@ def main(args=None):
 
     BM.dataPath = dataPath + '\\' + test_num
     values = BM.normalize_features(values)
+
+    # chunks
+    BM.initial_model(values, args.train_size)
+    BM.create_model()
+    for i in range(args.initialize_size-1, 21):
+        BM.split_train_test(values, args.train_size, i)
+        BM.fit_model(args.epochs, args.batch_size)
+
+    BM.plot_history()
+    BM.make_a_prediction()
+    BM.save_model()
+
+
+    """ 
     #chunks
     for i in range(21):
 
@@ -186,6 +223,7 @@ def main(args=None):
     BM.plot_history()
     BM.make_a_prediction()
     BM.save_model()
+    """
 
 
 
@@ -197,5 +235,6 @@ if (__name__ == "__main__"):
     parser.add_argument("test_num", type=str, help="Test num")
     parser.add_argument("epochs", type=int, help="Epochs")
     parser.add_argument("batch_size", type=int, help="Batch Size")
+    parser.add_argument("initialize_size", type=int, help="Initialize size (days)")
     args = parser.parse_args()
     main(args)

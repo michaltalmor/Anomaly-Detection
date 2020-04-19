@@ -17,6 +17,7 @@ import csv
 
 
 from tensorflow_core import metrics
+from tensorflow_core.python.ops.metrics_impl import root_mean_squared_error
 
 
 class BatchModel(object):
@@ -107,8 +108,12 @@ class BatchModel(object):
         chunk_size = int(len(self.dataset)/31)
         print(chunk_size)
         i = args.initialize_size-1
-        train_X, train_y = train[i*chunk_size:((i*chunk_size)+chunk_size-1), :-1], \
-                           train[i*chunk_size:((i*chunk_size+chunk_size)-1), -1]
+        start_chunk = i*chunk_size
+        end_chunk = (i*chunk_size)+chunk_size-1
+        if (end_chunk > len(self.dataset)):
+            end_chunk = len(self.dataset)
+        train_X, train_y = train[start_chunk:end_chunk, :-1], \
+                           train[start_chunk:end_chunk, -1]
         test_X, test_y = test[:, :-1], test[:, -1]
         # reshape input to be 3D [samples, timesteps, features]
         train_X = train_X.reshape((train_X.shape[0], 1, train_X.shape[1]))
@@ -126,9 +131,12 @@ class BatchModel(object):
         # split into input and outputs
         chunk_size = int(len(self.dataset)/31)
         print(chunk_size)
-
-        train_X, train_y = train[i*chunk_size:((i*chunk_size)+chunk_size-1), :-1], \
-                           train[i*chunk_size:((i*chunk_size+chunk_size)-1), -1]
+        start_chunk = i * chunk_size
+        end_chunk = (i * chunk_size) + chunk_size - 1
+        if (end_chunk >= len(self.dataset)):
+            end_chunk = len(self.dataset)-1
+        train_X, train_y = train[start_chunk:end_chunk, :-1], \
+                           train[start_chunk:end_chunk, -1]
         test_X, test_y = test[:, :-1], test[:, -1]
         # reshape input to be 3D [samples, timesteps, features]
         train_X = train_X.reshape((train_X.shape[0], 1, train_X.shape[1]))
@@ -145,6 +153,7 @@ class BatchModel(object):
         self.model.add(LSTM(50, input_shape=(self.train_X.shape[1], self.train_X.shape[2])))
         self.model.add(Dense(1))
         self.model.compile(loss='mse', optimizer='adam', metrics=[metrics.mae])
+
         # fit network
         #self.history = self.model.fit(self.train_X, self.train_y, epochs=1000, batch_size=72,
          #                             validation_data=(self.test_X, self.test_y), verbose=2, shuffle=False)
@@ -162,7 +171,15 @@ class BatchModel(object):
         #pyplot.savefig(self.dataPath+'\\Plots'+self.test_num+'\\Loss.png')
 
 
-    def make_a_prediction(self):
+    def make_a_prediction(self, values, prediction_size):
+        n_train_hours = prediction_size
+        test = values[n_train_hours:, :]
+        test_X, test_y = test[:, :-1], test[:, -1]
+        # reshape input to be 3D [samples, timesteps, features]
+        test_X = test_X.reshape((test_X.shape[0], 1, test_X.shape[1]))
+        self.test_X = test_X
+        self.test_y = test_y
+
         # Predict
         Predict = self.model.predict(self.test_X, verbose=1)
         print(Predict)
@@ -199,6 +216,38 @@ def main(args=None):
     BM.dataPath = dataPath + '\\' + test_num
     values = BM.normalize_features(values)
 
+# chunks
+    # chunks
+    BM.initial_model(values, args.train_size)
+    BM.create_model()
+    prediction_days_size = args.prediction_size
+    training_days_size = int(30 * args.train_size)-prediction_days_size
+    for i in range(args.initialize_size, training_days_size):
+        print(i)
+        BM.split_train_test(values, args.train_size, i)
+        BM.fit_model(args.epochs, args.batch_size)
+
+    BM.plot_history()
+    BM.make_a_prediction(values, prediction_days_size)
+    BM.save_model()
+
+
+
+
+"""
+ 
+    BM.initial_model(values, args.train_size)
+    BM.create_model()
+    chunk_size = len(BM.dataset)/31
+    for i in range(args.initialize_size*chunk_size, 21):
+        BM.split_train_test(values, args.train_size, i)
+        BM.fit_model(args.epochs, args.batch_size)
+
+    BM.plot_history()
+    BM.make_a_prediction()
+    BM.save_model()
+    
+    
     # chunks
     BM.initial_model(values, args.train_size)
     BM.create_model()
@@ -211,8 +260,8 @@ def main(args=None):
     BM.save_model()
 
 
-    """ 
-    #chunks
+    
+
     for i in range(21):
 
         BM.split_train_test(values, args.train_size, i)
@@ -236,5 +285,6 @@ if (__name__ == "__main__"):
     parser.add_argument("epochs", type=int, help="Epochs")
     parser.add_argument("batch_size", type=int, help="Batch Size")
     parser.add_argument("initialize_size", type=int, help="Initialize size (days)")
+    parser.add_argument("prediction_size", type=int, help="Prediction size (days)")
     args = parser.parse_args()
     main(args)

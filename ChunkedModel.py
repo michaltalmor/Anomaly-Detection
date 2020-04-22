@@ -238,11 +238,13 @@ def main(args=None):
     BM.split_train_test(init_seq, args.train_size)
     BM.create_model()
 
-    chunk_size = 1 #n_days
+    chunk_size = args.chunk_size #n_days
 # data array
     chunked_data = BM.split_sequences(addition_data_seq, chunk_size*n_data_per_day)
 
     for chunk in chunked_data:
+        if (len(chunk)<args.time_steps):
+            break
         BM.split_train_test(chunk, args.train_size)
         BM.fit_model(args.epochs, args.batch_size)
 
@@ -306,6 +308,7 @@ if (__name__ == "__main__"):
     parser.add_argument("n_nodes", type=int, help="Nodes size")
     parser.add_argument("initialize_size", type=int, help="Initialize size (days)")
     parser.add_argument("prediction_size", type=int, help="Prediction size (days)")
-    parser.add_argument("time_steps", type=int, help="Time steps output data (days)")
+    parser.add_argument("chunk_size", type=int, help="Chunk size (days)")
+    parser.add_argument("time_steps", type=int, help="Time steps output data")
     args = parser.parse_args()
     main(args)

@@ -4,6 +4,8 @@ from os import path
 import joblib
 import pandas as pd
 from functools import reduce
+
+from numpy.ma import array
 from sklearn.preprocessing import MinMaxScaler
 from pandas import DataFrame
 from pandas import concat
@@ -13,6 +15,7 @@ from keras.layers import LSTM
 from matplotlib import pyplot
 import matplotlib.pyplot as plt
 import argparse
+from keras import backend
 import csv
 
 
@@ -64,30 +67,6 @@ class BatchModel(object):
 
         return values
 
-    # convert series to supervised learning
-    def series_to_supervised(self, data, n_in=1, n_out=1, dropnan=True):
-        n_vars = 1 if type(data) is list else data.shape[1]
-        df = DataFrame(data)
-        cols, names = list(), list()
-        # input sequence (t-n, ... t-1)
-        for i in range(n_in, 0, -1):
-            cols.append(df.shift(i))
-            names += [('var%d(t-%d)' % (j + 1, i)) for j in range(n_vars)]
-        # forecast sequence (t, t+1, ... t+n)
-        for i in range(0, n_out):
-            cols.append(df.shift(-i))
-            if i == 0:
-                names += [('var%d(t)' % (j + 1)) for j in range(n_vars)]
-            else:
-                names += [('var%d(t+%d)' % (j + 1, i)) for j in range(n_vars)]
-        # put it all together
-        agg = concat(cols, axis=1)
-        agg.columns = names
-        # drop rows with NaN values
-        if dropnan:
-            agg.dropna(inplace=True)
-        return agg
-
     # normalize features
     def normalize_features(self, values):
         # ensure all data is float
@@ -100,20 +79,45 @@ class BatchModel(object):
         values = reframed.values
         return values
 
-    def initial_model(self, values, train_size):
-        n_train_hours = int(len(self.dataset) * train_size)
+    def get_init_sequences(self, sequences, n_days, n_data_per_day):
+        # find the end of this pattern
+        end_i_data = n_days*n_data_per_day
+        # gather input and output parts of the pattern
+        seq_1, seq_2 = sequences[0:end_i_data, :], sequences[end_i_data:, :]
+        return seq_1, seq_2
+
+    def get_predict_sequences(self, sequences, n_days, n_data_per_day):
+        # find the end of this pattern
+        start_i_data = len(sequences)-(n_days*n_data_per_day)
+        # gather input and output parts of the pattern
+        seq_data, seq_data_to_predict = sequences[0:start_i_data, :], sequences[start_i_data:, :]
+        return seq_data, seq_data_to_predict
+
+    def split_sequences(self, sequences, n_steps):
+        X = list()
+        for i in range(0, len(sequences), n_steps):
+            # find the end of this pattern
+            end_ix = i + n_steps
+            # check if we are beyond the dataset
+            if end_ix > len(sequences):
+                end_ix = len(sequences)
+                # gather input and output parts of the pattern
+                seq_x = sequences[i:end_ix, :]
+                X.append(seq_x)
+                break
+            # gather input and output parts of the pattern
+            seq_x = sequences[i:end_ix, :]
+            X.append(seq_x)
+        return array(X)
+
+
+
+    def split_train_test(self, values, train_size):
+        n_train_hours = int(len(values) * train_size)
         train = values[:n_train_hours, :]
         test = values[n_train_hours:, :]
         # split into input and outputs
-        chunk_size = int(len(self.dataset)/31)
-        print(chunk_size)
-        i = args.initialize_size-1
-        start_chunk = i*chunk_size
-        end_chunk = (i*chunk_size)+chunk_size-1
-        if (end_chunk > len(self.dataset)):
-            end_chunk = len(self.dataset)
-        train_X, train_y = train[start_chunk:end_chunk, :-1], \
-                           train[start_chunk:end_chunk, -1]
+        train_X, train_y = train[:, :-1], train[:, -1]
         test_X, test_y = test[:, :-1], test[:, -1]
         # reshape input to be 3D [samples, timesteps, features]
         train_X = train_X.reshape((train_X.shape[0], 1, train_X.shape[1]))
@@ -124,39 +128,16 @@ class BatchModel(object):
         self.test_X = test_X
         self.test_y = test_y
 
-    def split_train_test(self, values, train_size, i):
-        n_train_hours = int(len(self.dataset) * train_size)
-        train = values[:n_train_hours, :]
-        test = values[n_train_hours:, :]
-        # split into input and outputs
-        chunk_size = int(len(self.dataset)/31)
-        print(chunk_size)
-        start_chunk = i * chunk_size
-        end_chunk = (i * chunk_size) + chunk_size - 1
-        if (end_chunk >= len(self.dataset)):
-            end_chunk = len(self.dataset)-1
-        train_X, train_y = train[start_chunk:end_chunk, :-1], \
-                           train[start_chunk:end_chunk, -1]
-        test_X, test_y = test[:, :-1], test[:, -1]
-        # reshape input to be 3D [samples, timesteps, features]
-        train_X = train_X.reshape((train_X.shape[0], 1, train_X.shape[1]))
-        test_X = test_X.reshape((test_X.shape[0], 1, test_X.shape[1]))
-
-        self.train_X = train_X
-        self.train_y = train_y
-        self.test_X = test_X
-        self.test_y = test_y
+    def rmse(selfs, y_true, y_pred):
+        return backend.sqrt(backend.mean(backend.square(y_pred-y_true), axis=1))
 
     def create_model(self):
         # design network
         self.model = Sequential()
-        self.model.add(LSTM(50, input_shape=(self.train_X.shape[1], self.train_X.shape[2])))
+        self.model.add(LSTM(args.n_nodes, input_shape=(self.train_X.shape[1], self.train_X.shape[2])))
         self.model.add(Dense(1))
-        self.model.compile(loss='mse', optimizer='adam', metrics=[metrics.mae])
+        self.model.compile(loss=self.rmse, optimizer='adam', metrics=[metrics.mae])
 
-        # fit network
-        #self.history = self.model.fit(self.train_X, self.train_y, epochs=1000, batch_size=72,
-         #                             validation_data=(self.test_X, self.test_y), verbose=2, shuffle=False)
 
     def fit_model(self, epochs_in, batch_size_in):
         # fit network
@@ -171,10 +152,9 @@ class BatchModel(object):
         #pyplot.savefig(self.dataPath+'\\Plots'+self.test_num+'\\Loss.png')
 
 
-    def make_a_prediction(self, values, prediction_size):
-        n_train_hours = prediction_size
-        test = values[n_train_hours:, :]
-        test_X, test_y = test[:, :-1], test[:, -1]
+    def make_a_prediction(self, values):
+
+        test_X, test_y = values[:, :-1], values[:, -1]
         # reshape input to be 3D [samples, timesteps, features]
         test_X = test_X.reshape((test_X.shape[0], 1, test_X.shape[1]))
         self.test_X = test_X
@@ -218,17 +198,25 @@ def main(args=None):
 
 # chunks
     # chunks
-    BM.initial_model(values, args.train_size)
+    month_size = 31
+    n_data_per_day = int(len(values) / month_size)
+# split the last days to predict them
+    seq_data, seq_data_to_predict = BM.get_predict_sequences(values, args.prediction_size, n_data_per_day)
+# split the init days to create the model
+    init_seq, addition_data_seq = BM.get_init_sequences(seq_data, args.initialize_size, n_data_per_day)
+    BM.split_train_test(init_seq, args.train_size)
     BM.create_model()
-    prediction_days_size = args.prediction_size
-    training_days_size = int(30 * args.train_size)-prediction_days_size
-    for i in range(args.initialize_size, training_days_size):
-        print(i)
-        BM.split_train_test(values, args.train_size, i)
+
+    chunk_size = 1 #n_days
+# data array
+    chunked_data = BM.split_sequences(addition_data_seq, chunk_size*n_data_per_day)
+
+    for chunk in chunked_data:
+        BM.split_train_test(chunk, args.train_size)
         BM.fit_model(args.epochs, args.batch_size)
 
     BM.plot_history()
-    BM.make_a_prediction(values, prediction_days_size)
+    BM.make_a_prediction(seq_data_to_predict)
     BM.save_model()
 
 
@@ -284,6 +272,7 @@ if (__name__ == "__main__"):
     parser.add_argument("test_num", type=str, help="Test num")
     parser.add_argument("epochs", type=int, help="Epochs")
     parser.add_argument("batch_size", type=int, help="Batch Size")
+    parser.add_argument("n_nodes", type=int, help="Nodes size")
     parser.add_argument("initialize_size", type=int, help="Initialize size (days)")
     parser.add_argument("prediction_size", type=int, help="Prediction size (days)")
     args = parser.parse_args()

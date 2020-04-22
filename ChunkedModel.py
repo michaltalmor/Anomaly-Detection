@@ -221,7 +221,7 @@ def main(args=None):
     # chunks
     month_size = 31
     n_data_per_day = int(len(values) / month_size)
-# split the last days to predict them
+# split the last days to predict it
     seq_data, seq_data_to_predict = BM.get_predict_sequences(values, args.prediction_size, n_data_per_day)
 # split the init days to create the model
     init_seq, addition_data_seq = BM.get_init_sequences(seq_data, args.initialize_size, n_data_per_day)

@@ -134,15 +134,24 @@ class BatchModel(object):
             X.append(seq_x)
         return array(X)
 
+    def make_time_steps_data(self, values, n_time_steps):
+        # split into input and outputs
+        values_X = values[:len(values)-n_time_steps, :-1]
+        values_y = values[n_time_steps:, -1]
+
+        return values_X, values_y
 
 
     def split_train_test(self, values, train_size):
-        n_train_hours = int(len(values) * train_size)
-        train = values[:n_train_hours, :]
-        test = values[n_train_hours:, :]
-        # split into input and outputs
-        train_X, train_y = train[:, :-1], train[:, -1]
-        test_X, test_y = test[:, :-1], test[:, -1]
+        n_time_steps = args.time_steps
+        values_X, values_y = self.make_time_steps_data(values, n_time_steps)
+        n_train_hours = int((len(values)-n_time_steps) * train_size)
+        train_X = values_X[:n_train_hours, :]
+        train_y = values_y[:n_train_hours]
+
+        test_X = values_X[n_train_hours:, :]
+        test_y = values_y[n_train_hours:]
+
         # reshape input to be 3D [samples, timesteps, features]
         train_X = train_X.reshape((train_X.shape[0], 1, train_X.shape[1]))
         test_X = test_X.reshape((test_X.shape[0], 1, test_X.shape[1]))
@@ -177,8 +186,9 @@ class BatchModel(object):
 
 
     def make_a_prediction(self, values):
-
-        test_X, test_y = values[:, :-1], values[:, -1]
+        n_time_steps = args.time_steps
+        test_X, test_y = self.make_time_steps_data(values, n_time_steps)
+        #test_X, test_y = values_X[:, :-1], values_y[:, -1]
         # reshape input to be 3D [samples, timesteps, features]
         test_X = test_X.reshape((test_X.shape[0], 1, test_X.shape[1]))
         self.test_X = test_X
@@ -221,7 +231,7 @@ def main(args=None):
     # chunks
     month_size = 31
     n_data_per_day = int(len(values) / month_size)
-# split the last days to predict it
+# split the last days to predict them
     seq_data, seq_data_to_predict = BM.get_predict_sequences(values, args.prediction_size, n_data_per_day)
 # split the init days to create the model
     init_seq, addition_data_seq = BM.get_init_sequences(seq_data, args.initialize_size, n_data_per_day)
@@ -296,5 +306,6 @@ if (__name__ == "__main__"):
     parser.add_argument("n_nodes", type=int, help="Nodes size")
     parser.add_argument("initialize_size", type=int, help="Initialize size (days)")
     parser.add_argument("prediction_size", type=int, help="Prediction size (days)")
+    parser.add_argument("time_steps", type=int, help="Time steps output data (days)")
     args = parser.parse_args()
     main(args)

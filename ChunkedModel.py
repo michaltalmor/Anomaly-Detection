@@ -4,11 +4,9 @@ from os import path
 import joblib
 import pandas as pd
 from functools import reduce
-
 from numpy.ma import array
-from sklearn.preprocessing import MinMaxScaler
 from pandas import DataFrame
-from pandas import concat
+from sklearn.preprocessing import MinMaxScaler
 from keras.models import Sequential
 from keras.layers import Dense
 from keras.layers import LSTM
@@ -16,7 +14,9 @@ from matplotlib import pyplot
 import matplotlib.pyplot as plt
 import argparse
 from keras import backend
-import csv
+import seaborn as sns
+from pandas import concat
+
 
 
 from tensorflow_core import metrics
@@ -66,6 +66,30 @@ class BatchModel(object):
         values = dataset.values
 
         return values
+
+    # convert series to supervised learning
+    def series_to_supervised(self, data, n_in=1, n_out=1, dropnan=True):
+        n_vars = 1 if type(data) is list else data.shape[1]
+        df = DataFrame(data)
+        cols, names = list(), list()
+        # input sequence (t-n, ... t-1)
+        for i in range(n_in, 0, -1):
+            cols.append(df.shift(i))
+            names += [('var%d(t-%d)' % (j + 1, i)) for j in range(n_vars)]
+        # forecast sequence (t, t+1, ... t+n)
+        for i in range(0, n_out):
+            cols.append(df.shift(-i))
+            if i == 0:
+                names += [('var%d(t)' % (j + 1)) for j in range(n_vars)]
+            else:
+                names += [('var%d(t+%d)' % (j + 1, i)) for j in range(n_vars)]
+        # put it all together
+        agg = concat(cols, axis=1)
+        agg.columns = names
+        # drop rows with NaN values
+        if dropnan:
+            agg.dropna(inplace=True)
+        return agg
 
     # normalize features
     def normalize_features(self, values):
@@ -164,17 +188,14 @@ class BatchModel(object):
         Predict = self.model.predict(self.test_X, verbose=1)
         print(Predict)
         # Plot
-        fig = plt.figure(2)
-        plt.scatter(self.test_y, Predict)
-        #plt.set_ylim(ymin=0)
-        plt.show(block=False)
-        fig.savefig(self.dataPath + '\\plot2.png')
+
+        sns.regplot(self.test_y, Predict)
+        sns.despine()
+
         fig =plt.figure(3)
         Test, = plt.plot(self.test_y)
         Predict, = plt.plot(Predict)
-        #plt.set_ylim(ymin=0)
         plt.legend([Predict, Test], ["Predicted Data", "Real Data"])
-        #plt.set_ylim(ymin=0)
         plt.show()
         fig.savefig(self.dataPath + '\\plot3.png')
 

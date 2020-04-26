@@ -205,7 +205,7 @@ class BatchModel(object):
         Predict, = plt.plot(Predict)
         plt.legend([Predict, Test], ["Predicted Data", "Real Data"])
         plt.show()
-        fig.savefig(self.dataPath + '\\plot3.png')
+        fig.savefig(self.dataPath + os.sep + 'plot3.png')
 
 
     def save_model(self):

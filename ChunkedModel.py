@@ -20,7 +20,6 @@ from pandas import concat
 from keras import metrics
 #from tf.keras.metrics import root_mean_squared_error
 
-
 class BatchModel(object):
     def __init__(self, test_num, dataPath):
         self.test_num = test_num
@@ -251,9 +250,7 @@ def main(args=None):
     BM.save_model()
 
 
-
-
-if (__name__ == "__main__"):
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--path", help="Data path")
     parser.add_argument("--train_size", type=float, help="Train size")

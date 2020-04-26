@@ -145,7 +145,7 @@ class BatchModel(object):
     def split_train_test(self, values, train_size):
         n_time_steps = args.time_steps
         values_X, values_y = self.make_time_steps_data(values, n_time_steps)
-        n_train_hours = int((len(values)-n_time_steps) * train_size)
+        n_train_hours = int((len(values_X)) * train_size)
         train_X = values_X[:n_train_hours, :]
         train_y = values_y[:n_train_hours]
 
@@ -197,6 +197,7 @@ class BatchModel(object):
         # Predict
         Predict = self.model.predict(self.test_X, verbose=1)
         print(Predict)
+
         # Plot
 
         sns.regplot(self.test_y, Predict)
@@ -229,8 +230,8 @@ def main(args=None):
 
 # chunks
     # chunks
-    month_size = 31
-    n_data_per_day = int(len(values) / month_size)
+    n_days = 41 # in data path
+    n_data_per_day = int(len(values) / n_days)
 # split the last days to predict them
     seq_data, seq_data_to_predict = BM.get_predict_sequences(values, args.prediction_size, n_data_per_day)
 # split the init days to create the model
@@ -251,49 +252,6 @@ def main(args=None):
     BM.plot_history()
     BM.make_a_prediction(seq_data_to_predict)
     BM.save_model()
-
-
-
-
-"""
- 
-    BM.initial_model(values, args.train_size)
-    BM.create_model()
-    chunk_size = len(BM.dataset)/31
-    for i in range(args.initialize_size*chunk_size, 21):
-        BM.split_train_test(values, args.train_size, i)
-        BM.fit_model(args.epochs, args.batch_size)
-
-    BM.plot_history()
-    BM.make_a_prediction()
-    BM.save_model()
-    
-    
-    # chunks
-    BM.initial_model(values, args.train_size)
-    BM.create_model()
-    for i in range(args.initialize_size-1, 21):
-        BM.split_train_test(values, args.train_size, i)
-        BM.fit_model(args.epochs, args.batch_size)
-
-    BM.plot_history()
-    BM.make_a_prediction()
-    BM.save_model()
-
-
-    
-
-    for i in range(21):
-
-        BM.split_train_test(values, args.train_size, i)
-        if i == 0:
-            BM.create_model()
-        BM.fit_model(args.epochs, args.batch_size)
-
-    BM.plot_history()
-    BM.make_a_prediction()
-    BM.save_model()
-    """
 
 
 

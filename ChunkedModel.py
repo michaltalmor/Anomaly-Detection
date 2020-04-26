@@ -10,17 +10,15 @@ from sklearn.preprocessing import MinMaxScaler
 from keras.models import Sequential
 from keras.layers import Dense
 from keras.layers import LSTM
-from matplotlib import pyplot
-import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('TkAgg')
+import matplotlib.pyplot as pyplot
 import argparse
-from keras import backend
+from keras import backend, metrics
 import seaborn as sns
 from pandas import concat
-
-
-
-from tensorflow_core import metrics
-from tensorflow_core.python.ops.metrics_impl import root_mean_squared_error
+from keras import metrics
+#from tf.keras.metrics import root_mean_squared_error
 
 
 class BatchModel(object):
@@ -32,27 +30,27 @@ class BatchModel(object):
     def import_data(self, dataPath):
         self.dataPath = dataPath
         # combine all dates in 5M
-        f_path = dataPath + "\\recommendation_requests_5m_rate_dc"
+        f_path = dataPath + os.sep + "recommendation_requests_5m_rate_dc"
         dfs = [pd.read_csv(path.join(f_path, x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path, x))]
         dataset_5M = pd.concat(dfs)
         dataset_5M.columns = ['date', 'feature1']
         # combine all dates in P99
-        f_path = dataPath + "\\trc_requests_timer_p99_weighted_dc"
+        f_path = dataPath + os.sep + "trc_requests_timer_p99_weighted_dc"
         dfs = [pd.read_csv(path.join(f_path, x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path, x))]
         dataset_P99 = pd.concat(dfs)
         dataset_P99.columns = ['date', 'feature2']
         # combine all dates in P95
-        f_path = dataPath + "\\trc_requests_timer_p95_weighted_dc"
+        f_path = dataPath + os.sep + "trc_requests_timer_p95_weighted_dc"
         dfs = [pd.read_csv(path.join(f_path, x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path, x))]
         dataset_P95 = pd.concat(dfs)
         dataset_P95.columns = ['date', 'feature3']
         # combine all dates in failed_action
-        f_path = dataPath + "\\total_failed_action_conversions"
+        f_path = dataPath + os.sep +"total_failed_action_conversions"
         dfs = [pd.read_csv(path.join(f_path, x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path, x))]
         dataset_failedAction = pd.concat(dfs)
         dataset_failedAction.columns = ['date', 'failed_action']
         # combine all dates in success_action
-        f_path = dataPath + "\\total_success_action_conversions"
+        f_path = dataPath + os.sep + "total_success_action_conversions"
         dfs = [pd.read_csv(path.join(f_path, x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path, x))]
         dataset_SuccessAction = pd.concat(dfs)
         dataset_SuccessAction.columns = ['date', 'success_action']
@@ -248,7 +246,6 @@ def main(args=None):
             break
         BM.split_train_test(chunk, args.train_size)
         BM.fit_model(args.epochs, args.batch_size)
-
     BM.plot_history()
     BM.make_a_prediction(seq_data_to_predict)
     BM.save_model()
@@ -258,15 +255,15 @@ def main(args=None):
 
 if (__name__ == "__main__"):
     parser = argparse.ArgumentParser()
-    parser.add_argument("path", help="Data path")
-    parser.add_argument("train_size", type=float, help="Train size")
-    parser.add_argument("test_num", type=str, help="Test num")
-    parser.add_argument("epochs", type=int, help="Epochs")
-    parser.add_argument("batch_size", type=int, help="Batch Size")
-    parser.add_argument("n_nodes", type=int, help="Nodes size")
-    parser.add_argument("initialize_size", type=int, help="Initialize size (days)")
-    parser.add_argument("prediction_size", type=int, help="Prediction size (days)")
-    parser.add_argument("chunk_size", type=int, help="Chunk size (days)")
-    parser.add_argument("time_steps", type=int, help="Time steps output data")
+    parser.add_argument("--path", help="Data path")
+    parser.add_argument("--train_size", type=float, help="Train size")
+    parser.add_argument("--test_num", type=str, help="Test num")
+    parser.add_argument("--epochs", type=int, help="Epochs")
+    parser.add_argument("--batch_size", type=int, help="Batch Size")
+    parser.add_argument("--n_nodes", type=int, help="Nodes size")
+    parser.add_argument("--initialize_size", type=int, help="Initialize size (days)")
+    parser.add_argument("--prediction_size", type=int, help="Prediction size (days)")
+    parser.add_argument("--chunk_size", type=int, help="Chunk size (days)")
+    parser.add_argument("--time_steps", type=int, help="Time steps output data")
     args = parser.parse_args()
     main(args)

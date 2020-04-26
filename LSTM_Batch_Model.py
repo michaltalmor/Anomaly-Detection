@@ -18,27 +18,27 @@ class BatchModel(object):
 		
 	def import_data(self, dataPath):
 		#combine all dates in 5M
-		f_path = dataPath+"\\recommendation_requests_5m_rate_dc"
+		f_path = dataPath + os.sep + "recommendation_requests_5m_rate_dc"
 		dfs = [pd.read_csv(path.join(f_path,x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path,x))]
 		dataset_5M = pd.concat(dfs)
 		dataset_5M.columns = ['date','feature1']
 		#combine all dates in P99
-		f_path = dataPath+"\\trc_requests_timer_p99_weighted_dc"
+		f_path = dataPath + os.sep + "trc_requests_timer_p99_weighted_dc"
 		dfs = [pd.read_csv(path.join(f_path,x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path,x))]
 		dataset_P99 = pd.concat(dfs)
 		dataset_P99.columns = ['date','feature2']
 		#combine all dates in P95
-		f_path = dataPath+"\\trc_requests_timer_p95_weighted_dc"
+		f_path = dataPath + os.sep + "trc_requests_timer_p95_weighted_dc"
 		dfs = [pd.read_csv(path.join(f_path,x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path,x))]
 		dataset_P95 = pd.concat(dfs)
 		dataset_P95.columns = ['date','feature3']
 		#combine all dates in failed_action
-		f_path = dataPath+"\\total_failed_action_conversions"
+		f_path = dataPath + os.sep + "total_failed_action_conversions"
 		dfs = [pd.read_csv(path.join(f_path,x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path,x))]
 		dataset_failedAction = pd.concat(dfs)
 		dataset_failedAction.columns=['date','failed_action']
 		#combine all dates in success_action
-		f_path = dataPath+"\\total_success_action_conversions"
+		f_path = dataPath + os.sep + "total_success_action_conversions"
 		dfs = [pd.read_csv(path.join(f_path,x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path,x))]
 		dataset_SuccessAction = pd.concat(dfs)
 		dataset_SuccessAction.columns = ['date','success_action']

@@ -1,4 +1,6 @@
+import csv
 import os
+from itertools import zip_longest
 from os import path
 
 import joblib
@@ -16,11 +18,8 @@ import argparse
 from keras import backend
 import seaborn as sns
 from pandas import concat
-
-
-
+import numpy
 from tensorflow_core import metrics
-from tensorflow_core.python.ops.metrics_impl import root_mean_squared_error
 
 
 class BatchModel(object):
@@ -29,30 +28,30 @@ class BatchModel(object):
         self.dataPath = dataPath
 
         # TODO use the names of the metrics from the folders names)
+
     def import_data(self, dataPath):
-        self.dataPath = dataPath
         # combine all dates in 5M
-        f_path = dataPath + "\\recommendation_requests_5m_rate_dc"
+        f_path = dataPath + os.sep + "recommendation_requests_5m_rate_dc"
         dfs = [pd.read_csv(path.join(f_path, x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path, x))]
         dataset_5M = pd.concat(dfs)
         dataset_5M.columns = ['date', 'feature1']
         # combine all dates in P99
-        f_path = dataPath + "\\trc_requests_timer_p99_weighted_dc"
+        f_path = dataPath + os.sep + "trc_requests_timer_p99_weighted_dc"
         dfs = [pd.read_csv(path.join(f_path, x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path, x))]
         dataset_P99 = pd.concat(dfs)
         dataset_P99.columns = ['date', 'feature2']
         # combine all dates in P95
-        f_path = dataPath + "\\trc_requests_timer_p95_weighted_dc"
+        f_path = dataPath + os.sep + "trc_requests_timer_p95_weighted_dc"
         dfs = [pd.read_csv(path.join(f_path, x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path, x))]
         dataset_P95 = pd.concat(dfs)
         dataset_P95.columns = ['date', 'feature3']
         # combine all dates in failed_action
-        f_path = dataPath + "\\total_failed_action_conversions"
+        f_path = dataPath + os.sep + "total_failed_action_conversions"
         dfs = [pd.read_csv(path.join(f_path, x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path, x))]
         dataset_failedAction = pd.concat(dfs)
         dataset_failedAction.columns = ['date', 'failed_action']
         # combine all dates in success_action
-        f_path = dataPath + "\\total_success_action_conversions"
+        f_path = dataPath + os.sep + "total_success_action_conversions"
         dfs = [pd.read_csv(path.join(f_path, x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path, x))]
         dataset_SuccessAction = pd.concat(dfs)
         dataset_SuccessAction.columns = ['date', 'success_action']
@@ -138,14 +137,13 @@ class BatchModel(object):
         # split into input and outputs
         values_X = values[:len(values)-n_time_steps, :-1]
         values_y = values[n_time_steps:, -1]
-
         return values_X, values_y
 
 
     def split_train_test(self, values, train_size):
         n_time_steps = args.time_steps
         values_X, values_y = self.make_time_steps_data(values, n_time_steps)
-        n_train_hours = int((len(values)-n_time_steps) * train_size)
+        n_train_hours = int((len(values_X)) * train_size)
         train_X = values_X[:n_train_hours, :]
         train_y = values_y[:n_train_hours]
 
@@ -182,13 +180,10 @@ class BatchModel(object):
         pyplot.plot(self.history.history['val_loss'], label='test')
         pyplot.legend()
         pyplot.show()
-        #pyplot.savefig(self.dataPath+'\\Plots'+self.test_num+'\\Loss.png')
-
 
     def make_a_prediction(self, values):
-        n_time_steps = args.time_steps
-        test_X, test_y = self.make_time_steps_data(values, n_time_steps)
-        #test_X, test_y = values_X[:, :-1], values_y[:, -1]
+        test_X = values[:, :-1]
+        test_y = values[:, -1]
         # reshape input to be 3D [samples, timesteps, features]
         test_X = test_X.reshape((test_X.shape[0], 1, test_X.shape[1]))
         self.test_X = test_X
@@ -197,18 +192,27 @@ class BatchModel(object):
         # Predict
         Predict = self.model.predict(self.test_X, verbose=1)
         print(Predict)
+        #csv results file
+        with open('results.csv', 'w') as file:
+            writer = csv.writer(file)
+            d = [Predict,  (map(lambda x: [x], self.test_y))]
+            export_data = zip_longest(*d, fillvalue='')
+            writer.writerows(export_data)
+
         # Plot
+        zero_array = numpy.zeros([args.time_steps])
+        new_predict = numpy.append(zero_array, Predict)
+        new_test = numpy.append(self.test_y, zero_array)
 
-        sns.regplot(self.test_y, Predict)
-        sns.despine()
-
-        fig =plt.figure(3)
+        fig = plt.figure(4)
         Test, = plt.plot(self.test_y)
         Predict, = plt.plot(Predict)
         plt.legend([Predict, Test], ["Predicted Data", "Real Data"])
         plt.show()
-        fig.savefig(self.dataPath + '\\plot3.png')
+        fig.savefig(self.dataPath + '\\plot4.png')
 
+        #sns.regplot(Test, Predict)
+        #sns.despine()
 
     def save_model(self):
         filename = 'finalized_model'+self.test_num+'.sav'
@@ -229,15 +233,15 @@ def main(args=None):
 
 # chunks
     # chunks
-    month_size = 31
-    n_data_per_day = int(len(values) / month_size)
-# split the last days to predict them
+    n_days = 41 # in data path
+    n_data_per_day = int(len(values) / n_days)
+# split the last days to predict
     seq_data, seq_data_to_predict = BM.get_predict_sequences(values, args.prediction_size, n_data_per_day)
 # split the init days to create the model
     init_seq, addition_data_seq = BM.get_init_sequences(seq_data, args.initialize_size, n_data_per_day)
     BM.split_train_test(init_seq, args.train_size)
     BM.create_model()
-
+    BM.fit_model(args.epochs, args.batch_size)
     chunk_size = args.chunk_size #n_days
 # data array
     chunked_data = BM.split_sequences(addition_data_seq, chunk_size*n_data_per_day)
@@ -251,49 +255,6 @@ def main(args=None):
     BM.plot_history()
     BM.make_a_prediction(seq_data_to_predict)
     BM.save_model()
-
-
-
-
-"""
- 
-    BM.initial_model(values, args.train_size)
-    BM.create_model()
-    chunk_size = len(BM.dataset)/31
-    for i in range(args.initialize_size*chunk_size, 21):
-        BM.split_train_test(values, args.train_size, i)
-        BM.fit_model(args.epochs, args.batch_size)
-
-    BM.plot_history()
-    BM.make_a_prediction()
-    BM.save_model()
-    
-    
-    # chunks
-    BM.initial_model(values, args.train_size)
-    BM.create_model()
-    for i in range(args.initialize_size-1, 21):
-        BM.split_train_test(values, args.train_size, i)
-        BM.fit_model(args.epochs, args.batch_size)
-
-    BM.plot_history()
-    BM.make_a_prediction()
-    BM.save_model()
-
-
-    
-
-    for i in range(21):
-
-        BM.split_train_test(values, args.train_size, i)
-        if i == 0:
-            BM.create_model()
-        BM.fit_model(args.epochs, args.batch_size)
-
-    BM.plot_history()
-    BM.make_a_prediction()
-    BM.save_model()
-    """
 
 
 

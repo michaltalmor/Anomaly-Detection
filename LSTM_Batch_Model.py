@@ -1,4 +1,6 @@
+import csv
 import os
+from itertools import zip_longest
 from os import path
 import pandas as pd
 from functools import reduce
@@ -18,27 +20,27 @@ class BatchModel(object):
 		
 	def import_data(self, dataPath):
 		#combine all dates in 5M
-		f_path = dataPath+"\\recommendation_requests_5m_rate_dc"
+		f_path = dataPath + os.sep + "recommendation_requests_5m_rate_dc"
 		dfs = [pd.read_csv(path.join(f_path,x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path,x))]
 		dataset_5M = pd.concat(dfs)
 		dataset_5M.columns = ['date','feature1']
 		#combine all dates in P99
-		f_path = dataPath+"\\trc_requests_timer_p99_weighted_dc"
+		f_path = dataPath + os.sep + "trc_requests_timer_p99_weighted_dc"
 		dfs = [pd.read_csv(path.join(f_path,x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path,x))]
 		dataset_P99 = pd.concat(dfs)
 		dataset_P99.columns = ['date','feature2']
 		#combine all dates in P95
-		f_path = dataPath+"\\trc_requests_timer_p95_weighted_dc"
+		f_path = dataPath + os.sep + "trc_requests_timer_p95_weighted_dc"
 		dfs = [pd.read_csv(path.join(f_path,x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path,x))]
 		dataset_P95 = pd.concat(dfs)
 		dataset_P95.columns = ['date','feature3']
 		#combine all dates in failed_action
-		f_path = dataPath+"\\total_failed_action_conversions"
+		f_path = dataPath + os.sep + "total_failed_action_conversions"
 		dfs = [pd.read_csv(path.join(f_path,x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path,x))]
 		dataset_failedAction = pd.concat(dfs)
 		dataset_failedAction.columns=['date','failed_action']
 		#combine all dates in success_action
-		f_path = dataPath+"\\total_success_action_conversions"
+		f_path = dataPath + os.sep + "total_success_action_conversions"
 		dfs = [pd.read_csv(path.join(f_path,x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path,x))]
 		dataset_SuccessAction = pd.concat(dfs)
 		dataset_SuccessAction.columns = ['date','success_action']
@@ -112,7 +114,12 @@ class BatchModel(object):
 		self.model.add(Dense(1))
 		self.model.compile(loss='mae', optimizer='adam')
 		# fit network
-		self.history = self.model.fit(self.train_X, self.train_y, epochs=50, batch_size=72, validation_data=(self.test_X, self.test_y), verbose=2, shuffle=False)
+		train_X = self.train_X[:len(self.train_X) - 0, :]
+		train_y = self.train_y[0:]
+
+		test_X = self.test_X[:len(self.test_X) - 0, :]
+		test_y = self.test_y[0:]
+		self.history = self.model.fit(train_X, train_y, epochs=50, batch_size=72, validation_data=(test_X, test_y), verbose=2, shuffle=False)
 
 	def plot_history(self):
 		# plot history
@@ -130,11 +137,19 @@ class BatchModel(object):
 		plt.scatter(self.test_y,Predict)
 		plt.show(block = False)
 
+		with open('resultsBatch0.csv', 'w') as file:
+			writer = csv.writer(file)
+			d = [Predict, (map(lambda x: [x], self.test_y))]
+			export_data = zip_longest(*d, fillvalue='')
+			writer.writerows(export_data)
+
 		plt.figure(3)
 		Test, =plt.plot(self.test_y)
 		Predict, = plt.plot(Predict)
-		plt.legend([Predict,Test],["Predicted Data", "Real Data"])
+		plt.legend([Predict, Test],["Predicted Data", "Real Data"])
 		plt.show()
+
+
 
 
 parser = argparse.ArgumentParser()
@@ -143,7 +158,6 @@ parser.add_argument("train_size", type=float, help="Train size")
 args = parser.parse_args()
 
 BM = BatchModel()
-#dataPath = "D:\\לימודים\\שנה ג\\סמסטר ב\\התמחות\\kobiBryent_US\\US-20200401T133445Z-001\\US"
 dataPath = args.path
 values = BM.import_data(dataPath)
 values = BM.normalize_features(values)

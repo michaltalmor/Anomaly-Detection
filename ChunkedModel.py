@@ -246,6 +246,7 @@ def main(args=None):
     BM.dataPath = dataPath + '\\' + test_num
     values = BM.normalize_features(values)
 
+
 # chunks
     # chunks
     n_days = 31 # in data path

@@ -225,10 +225,7 @@ class BatchModel(object):
         Predict, = plt.plot(self.pradict_data_dates, Predict)
         plt.legend([Predict, Test], ["Predicted Data", "Real Data"])
         plt.xticks(rotation='vertical')
-        # Pad margins so that markers don't get clipped by the axes
-        #plt.margins(0.2)
-        # Tweak spacing to prevent clipping of tick-labels
-        #plt.subplots_adjust(bottom=0.15)
+
         plt.show()
         fig.savefig(self.dataPath + '\\plot4.png')
 

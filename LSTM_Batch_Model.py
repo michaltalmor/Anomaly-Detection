@@ -1,4 +1,6 @@
+import csv
 import os
+from itertools import zip_longest
 from os import path
 import pandas as pd
 from functools import reduce
@@ -112,7 +114,12 @@ class BatchModel(object):
 		self.model.add(Dense(1))
 		self.model.compile(loss='mae', optimizer='adam')
 		# fit network
-		self.history = self.model.fit(self.train_X, self.train_y, epochs=50, batch_size=72, validation_data=(self.test_X, self.test_y), verbose=2, shuffle=False)
+		train_X = self.train_X[:len(self.train_X) - 0, :]
+		train_y = self.train_y[0:]
+
+		test_X = self.test_X[:len(self.test_X) - 0, :]
+		test_y = self.test_y[0:]
+		self.history = self.model.fit(train_X, train_y, epochs=50, batch_size=72, validation_data=(test_X, test_y), verbose=2, shuffle=False)
 
 	def plot_history(self):
 		# plot history
@@ -130,11 +137,19 @@ class BatchModel(object):
 		plt.scatter(self.test_y,Predict)
 		plt.show(block = False)
 
+		with open('resultsBatch0.csv', 'w') as file:
+			writer = csv.writer(file)
+			d = [Predict, (map(lambda x: [x], self.test_y))]
+			export_data = zip_longest(*d, fillvalue='')
+			writer.writerows(export_data)
+
 		plt.figure(3)
 		Test, =plt.plot(self.test_y)
 		Predict, = plt.plot(Predict)
-		plt.legend([Predict,Test],["Predicted Data", "Real Data"])
+		plt.legend([Predict, Test],["Predicted Data", "Real Data"])
 		plt.show()
+
+
 
 
 parser = argparse.ArgumentParser()
@@ -143,7 +158,6 @@ parser.add_argument("train_size", type=float, help="Train size")
 args = parser.parse_args()
 
 BM = BatchModel()
-#dataPath = "D:\\לימודים\\שנה ג\\סמסטר ב\\התמחות\\kobiBryent_US\\US-20200401T133445Z-001\\US"
 dataPath = args.path
 values = BM.import_data(dataPath)
 values = BM.normalize_features(values)

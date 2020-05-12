@@ -20,6 +20,7 @@ import seaborn as sns
 from pandas import concat
 import numpy
 from tensorflow_core import metrics
+import datetime
 
 
 class BatchModel(object):
@@ -59,12 +60,30 @@ class BatchModel(object):
         dfs = [dataset_5M, dataset_P99, dataset_P95, dataset_SuccessAction]
         dataset = reduce(lambda left, right: pd.merge(left, right, on='date'), dfs)
         dataset.drop_duplicates(subset=None, inplace=True)
+
+        dataset = self.add_time_feature(dataset)
+
         dataset.drop('date', 1)
         dataset.drop(dataset.columns[[0]], axis=1, inplace=True)
+
         self.dataset = dataset
         values = dataset.values
-
         return values
+
+    def add_time_feature(self, dataset):
+        # dataset['day'] = dataset['date'].str.split(' ', expand=True)[0]
+        dataset['time'] = dataset['date'].str.split(' ', expand=True)[1]
+        dataset['time'] = dataset['time'].str.replace(':', '')
+        columns_titles = ["date", "feature1", "feature2", "feature3", "time", "success_action"]
+        return dataset.reindex(columns=columns_titles)
+
+    def add_day_feature(self, dataset):
+        dataset['day'] = dataset['date'].str.split(' ', expand=True)[0]
+        b = "02/01/2020"
+        for i in range(0, dataset.size):
+            q = dataset['day'][i]
+            dataset['day'][i] = datetime.datetime(int(dataset['day'][i].split('-')[0]), int(dataset['day'][i].split('-')[1]), int(dataset['day'][i].split('-')[2])).weekday()
+        return dataset
 
     # convert series to supervised learning
     def series_to_supervised(self, data, n_in=1, n_out=1, dropnan=True):
@@ -97,10 +116,7 @@ class BatchModel(object):
         # normalize features
         scaler = MinMaxScaler(feature_range=(0, 1))
         scaled = scaler.fit_transform(values)
-        # frame as supervised learning
-        reframed = self.series_to_supervised(scaled, 1, 1)
-        values = reframed.values
-        return values
+        return scaled
 
     def get_init_sequences(self, sequences, n_days, n_data_per_day):
         # find the end of this pattern
@@ -200,9 +216,8 @@ class BatchModel(object):
             writer.writerows(export_data)
 
         # Plot
-        zero_array = numpy.zeros([args.time_steps])
-        new_predict = numpy.append(zero_array, Predict)
-        new_test = numpy.append(self.test_y, zero_array)
+        sns.set()
+        sns.heatmap(self.dataset.corr(), cmap='coolwarm')
 
         fig = plt.figure(4)
         Test, = plt.plot(self.test_y)
@@ -233,7 +248,7 @@ def main(args=None):
 
 # chunks
     # chunks
-    n_days = 41 # in data path
+    n_days = 31 # in data path
     n_data_per_day = int(len(values) / n_days)
 # split the last days to predict
     seq_data, seq_data_to_predict = BM.get_predict_sequences(values, args.prediction_size, n_data_per_day)

@@ -62,7 +62,7 @@ class BatchModel(object):
         dataset.drop_duplicates(subset=None, inplace=True)
 
         dataset = self.add_time_feature(dataset)
-
+        self.dates = pd.to_datetime(dataset['date'], format='%Y-%m-%dT%H:%M:%S')
         dataset.drop('date', 1)
         dataset.drop(dataset.columns[[0]], axis=1, inplace=True)
 
@@ -130,6 +130,7 @@ class BatchModel(object):
         start_i_data = len(sequences)-(n_days*n_data_per_day)
         # gather input and output parts of the pattern
         seq_data, seq_data_to_predict = sequences[0:start_i_data, :], sequences[start_i_data:, :]
+        self.pradict_data_dates = self.dates.values[start_i_data:]
         return seq_data, seq_data_to_predict
 
     def split_sequences(self, sequences, n_steps):
@@ -220,9 +221,14 @@ class BatchModel(object):
         sns.heatmap(self.dataset.corr(), cmap='coolwarm')
 
         fig = plt.figure(4)
-        Test, = plt.plot(self.test_y)
-        Predict, = plt.plot(Predict)
+        Test, = plt.plot(self.pradict_data_dates, self.test_y)
+        Predict, = plt.plot(self.pradict_data_dates, Predict)
         plt.legend([Predict, Test], ["Predicted Data", "Real Data"])
+        plt.xticks(rotation='vertical')
+        # Pad margins so that markers don't get clipped by the axes
+        #plt.margins(0.2)
+        # Tweak spacing to prevent clipping of tick-labels
+        #plt.subplots_adjust(bottom=0.15)
         plt.show()
         fig.savefig(self.dataPath + '\\plot4.png')
 

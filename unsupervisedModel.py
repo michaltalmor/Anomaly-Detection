@@ -17,6 +17,8 @@ from matplotlib import rc, pyplot
 from pandas.plotting import register_matplotlib_converters
 import argparse
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from tensorflow_core.compiler.tf2xla.python.xla import lt
+
 import LSTM_Model
 
 
@@ -52,9 +54,10 @@ class unsupervisedModel(object):
         dfs = [dataset_5M, dataset_P99, dataset_P95, dataset_SuccessAction]
         dataset = reduce(lambda left, right: pd.merge(left, right, on='date'), dfs)
         dataset.drop_duplicates(subset=None, inplace=True)
-        dataset.drop('date', 1)
-        dataset.drop(dataset.columns[[0]], axis=1, inplace=True)
 
+        self.dates = pd.to_datetime(dataset['date'], format='%Y-%m-%dT%H:%M:%S')
+        dataset.drop(['date'], 1, inplace=True)
+        # dataset.set_index(self.dates, inplace=True)
         self.dataset = dataset
         return dataset
 
@@ -66,15 +69,16 @@ class unsupervisedModel(object):
             # ensure all data is float
             df[feature] = df[feature].astype('float32')
             # normalize features
-            scaler = StandardScaler()
-            scaler = scaler.fit(df[[feature]])
-            df[feature] = scaler.transform(df[[feature]])
+            # scaler = StandardScaler()
+            scaler = MinMaxScaler(feature_range=(0, 1))
+            df[feature] = scaler.fit_transform(df[[feature]])
+            self.scaler = scaler
         return df
 
     def make_time_steps_data(self, values, n_time_steps):
         # split into input and outputs
-        values_X = values[:len(values)-n_time_steps, :-1]
-        values_y = values[n_time_steps:, -1]
+        values_X = values[:len(values)-n_time_steps, :]
+        values_y = values[n_time_steps:, :]
         return values_X, values_y
 
     def split_train_test(self, values, train_size, time_steps):
@@ -90,6 +94,8 @@ class unsupervisedModel(object):
         # reshape input to be 3D [samples, timesteps, features]
         train_X = train_X.reshape((train_X.shape[0], 1, train_X.shape[1]))
         test_X = test_X.reshape((test_X.shape[0], 1, test_X.shape[1]))
+        train_y = train_y.reshape((train_y.shape[0], 1, train_y.shape[1]))
+        test_y = test_y.reshape((test_y.shape[0], 1, test_y.shape[1]))
 
         self.train_X = train_X
         self.train_y = train_y
@@ -104,20 +110,18 @@ class unsupervisedModel(object):
             ys.append(y.iloc[i + time_steps])
         return np.array(Xs), np.array(ys)
 
-    def create_model(self, train_X, train_y):
-        self.train_X = train_X
-        self.train_y = train_y
+    def create_model(self):
         # define model
         self.model = Sequential()
         self.model.add(LSTM(args.n_nodes, input_shape=(self.train_X.shape[1], self.train_X.shape[2])))
         self.model.add(Dropout(rate=0.2))
-        self.model.add(RepeatVector(n=train_X.shape[1]))
+        self.model.add(RepeatVector(n=self.train_X.shape[1]))
         self.model.add(LSTM(units=64, return_sequences=True))
         self.model.add(Dropout(rate=0.2))
         self.model.add(TimeDistributed(Dense(self.train_X.shape[2])))
-        self.model.compile(optimizer='adam', loss='mse')
+        self.model.compile(optimizer='adam', loss='mae')
         # fit network
-        history = self.model.fit(self.train_X, self.train_y, epochs=10, batch_size=32, validation_split=0.1,shuffle=False)
+        self.history = self.model.fit(self.train_X, self.train_y, epochs=10, batch_size=32, validation_split=0.1, shuffle=False)
 
     # returns train, inference_encoder and inference_decoder models
     def define_models(self, n_input, n_output, n_units):
@@ -153,6 +157,52 @@ class unsupervisedModel(object):
         pyplot.legend()
         pyplot.show()
 
+    def prediction(self, test, THRESHOLD):
+        X_train_pred = self.model.predict(self.train_X)
+        train_mae_loss = np.mean(np.abs(X_train_pred - self.train_X), axis=1)
+        sns.distplot(train_mae_loss[:,3], bins=50, kde=True) #total success action[:,3]
+        plt.show()
+
+        X_test_pred = self.model.predict(self.test_X)
+        test_mae_loss = np.mean(np.abs(X_test_pred - self.test_X), axis=1)
+        test_score_df = pd.DataFrame(index=test.index)
+        test_score_df['loss'] = test_mae_loss[:,3] #total success action[:,3]
+        test_score_df['threshold'] = THRESHOLD
+        test_score_df['anomaly'] = test_score_df.loss > test_score_df.threshold
+        test_score_df['success_action'] = test['success_action']
+
+        self.test_score_df = test_score_df
+        self.test = test
+        # plot
+        plt.plot(test_score_df.index, test_score_df.loss, label='loss')
+        plt.plot(test_score_df.index, test_score_df.threshold, label='threshold')
+        plt.xticks(rotation=25)
+        plt.legend()
+        plt.show()
+
+    def anomalies(self):
+        anomalies = self.test_score_df[self.test_score_df.anomaly == True]
+        anomalies.head()
+
+        plt.plot(
+            self.test.index,
+            # self.scaler.inverse_transform(self.test.success_action),
+            self.test.success_action,
+            label='success_action'
+        );
+
+        sns.scatterplot(
+            anomalies.index,
+            # self.scaler.inverse_transform(anomalies.success_action),
+            anomalies.success_action,
+            color=sns.color_palette()[3],
+            s=52,
+            label='anomaly'
+        )
+        plt.xticks(rotation=25)
+        plt.legend()
+        plt.show()
+
 def main(args=None):
 
     UM = unsupervisedModel()
@@ -174,27 +224,18 @@ def main(args=None):
 
     plt.show()
 
+    df = UM.normalize_features(df)
     values = df.values
-
-    train_size = int(len(df) * 0.95)
+    train_size = int (args.train_size*len(df))
     test_size = len(df) - train_size
     train, test = df.iloc[0:train_size], df.iloc[train_size:len(df)]
-    print(train.shape, test.shape)
 
-    df = UM.normalize_features(df)
-    TIME_STEPS = 1
-
-    # reshape to [samples, time_steps, n_features]
-    x = train.feature1
-
-    train_X, train_y = UM.create_dataset(train[['feature1']], train.feature1, TIME_STEPS)
-    X_test, y_test = UM.create_dataset(test[['feature1']], test.feature1, TIME_STEPS)
-
-    print(train_X.shape)
-    # UM.split_train_test(values, args.train_size, time_steps=1)
-    UM.create_model(train_X, train_y)
+    UM.split_train_test(values, args.train_size, time_steps=0)
+    UM.create_model()
     UM.plot_history()
-
+    THRESHOLD = 0.3
+    UM.prediction(test, THRESHOLD)
+    UM.anomalies()
 
 
 

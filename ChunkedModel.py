@@ -23,7 +23,7 @@ from tensorflow_core import metrics
 import datetime
 
 
-class BatchModel(object):
+class ChunkedModel(object):
     def __init__(self, test_num, dataPath):
         self.test_num = test_num
         self.dataPath = dataPath
@@ -35,17 +35,17 @@ class BatchModel(object):
         f_path = dataPath + os.sep + "recommendation_requests_5m_rate_dc"
         dfs = [pd.read_csv(path.join(f_path, x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path, x))]
         dataset_5M = pd.concat(dfs)
-        dataset_5M.columns = ['date', 'feature1']
+        dataset_5M.columns = ['date', '5m']
         # combine all dates in P99
         f_path = dataPath + os.sep + "trc_requests_timer_p99_weighted_dc"
         dfs = [pd.read_csv(path.join(f_path, x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path, x))]
         dataset_P99 = pd.concat(dfs)
-        dataset_P99.columns = ['date', 'feature2']
+        dataset_P99.columns = ['date', 'p99']
         # combine all dates in P95
         f_path = dataPath + os.sep + "trc_requests_timer_p95_weighted_dc"
         dfs = [pd.read_csv(path.join(f_path, x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path, x))]
         dataset_P95 = pd.concat(dfs)
-        dataset_P95.columns = ['date', 'feature3']
+        dataset_P95.columns = ['date', 'p95']
         # combine all dates in failed_action
         f_path = dataPath + os.sep + "total_failed_action_conversions"
         dfs = [pd.read_csv(path.join(f_path, x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path, x))]
@@ -57,11 +57,14 @@ class BatchModel(object):
         dataset_SuccessAction = pd.concat(dfs)
         dataset_SuccessAction.columns = ['date', 'success_action']
         # merge
-        dfs = [dataset_5M, dataset_P99, dataset_P95, dataset_SuccessAction]
+        dfs = [dataset_5M,dataset_P99, dataset_P95,dataset_failedAction, dataset_SuccessAction]
         dataset = reduce(lambda left, right: pd.merge(left, right, on='date'), dfs)
         dataset.drop_duplicates(subset=None, inplace=True)
 
-        dataset = self.add_time_feature(dataset)
+
+        dataset = self.add_features(dataset)
+        #dataset["time_steps_success_action"] = dataset["success_action"]
+
         self.dates = pd.to_datetime(dataset['date'], format='%Y-%m-%dT%H:%M:%S')
         dataset.drop('date', 1)
         dataset.drop(dataset.columns[[0]], axis=1, inplace=True)
@@ -70,19 +73,82 @@ class BatchModel(object):
         values = dataset.values
         return values
 
+    def add_features(self, dataset):
+        dataset = self.add_is_rush_hour(dataset)
+        dataset = self.add_isWeekend_feature(dataset)
+        dataset = self.add_trend(dataset)
+        #dataset = self.add_anomaly(dataset)
+        dataset = self.add_multiply(dataset)
+        dataset = self.add_time_feature(dataset)
+        dataset = self.drop_low_corr_feature(dataset)
+        #dataset = self.add_anomaly(dataset)
+        list = dataset.columns.tolist()  # list the columns in the df
+        list.insert(len(list), list.pop(list.index('success_action')))  # Assign new position (i.e. 8) for "success_action"
+        dataset = dataset.reindex(columns=list)  # Now move 'success_action' to ist new position
+        return dataset
+
+    def add_anomaly(self, dataset):
+        anomaly = dataset["success_action"]
+        is_anomaly = [1 if num == 0 else 0 for num in anomaly]
+        dataset["is_anomaly"] = is_anomaly
+        return dataset
+
+    def drop_low_corr_feature(self, dataset):
+        prediction = dataset["success_action"][args.time_steps:]
+        dataset_to_corr = dataset[:-args.time_steps]
+        dataset_to_corr["prediction"] = prediction
+        corr = dataset_to_corr.corr()["prediction"]
+        corr = corr.abs()
+        print(corr)
+
+        for name in dataset_to_corr.columns:
+            if (name != "time" and name != "date" and corr[name] < 0.8):
+                dataset.drop(columns=[name], inplace=True)
+        #dataset.drop(columns=["is_rush_hour * is_weekend"])
+        return dataset
+
     def add_time_feature(self, dataset):
         # dataset['day'] = dataset['date'].str.split(' ', expand=True)[0]
         dataset['time'] = dataset['date'].str.split(' ', expand=True)[1]
         dataset['time'] = dataset['time'].str.replace(':', '')
-        columns_titles = ["date", "feature1", "feature2", "feature3", "time", "success_action"]
-        return dataset.reindex(columns=columns_titles)
+        return dataset
 
-    def add_day_feature(self, dataset):
-        dataset['day'] = dataset['date'].str.split(' ', expand=True)[0]
-        b = "02/01/2020"
-        for i in range(0, dataset.size):
-            q = dataset['day'][i]
-            dataset['day'][i] = datetime.datetime(int(dataset['day'][i].split('-')[0]), int(dataset['day'][i].split('-')[1]), int(dataset['day'][i].split('-')[2])).weekday()
+    def add_isWeekend_feature(self, dataset):
+        dataset['is_weekend'] = dataset['date'].str.split(' ', expand=True)[0]
+        dataset['is_weekend'] = pd.to_datetime(dataset['is_weekend'], format='%Y-%m-%d')
+        dataset['is_weekend'] = dataset['is_weekend'].dt.dayofweek
+        is_weekend = dataset['is_weekend'].apply(lambda x: 1 if x >= 5.0 else 0)
+        dataset['is_weekend'] = is_weekend
+        return dataset
+
+    def add_is_rush_hour(self, dataset):
+        requests = dataset["5m"]
+        threshold_value = requests.sort_values()[numpy.math.floor(0.8 * requests.size)]
+        is_rush_hour = [1 if num > threshold_value else 0 for num in requests]
+        dataset["is_rush_hour"] = is_rush_hour
+        return dataset
+
+    def add_trend(self, dataset):
+        feature_names = ["5m", "p95", "p99"]
+        i = 0
+        for feature in feature_names:
+            i += 1
+            x = dataset[feature]
+            trend = [b - a for a, b in zip(x[::1], x[1::1])]
+            trend.append(0)
+            dataset["trend_" + feature] = trend
+        return dataset
+
+    def add_multiply(self, dataset):
+        feature_names1 = dataset.columns
+        feature_names2 = dataset.columns
+
+        for feature1 in feature_names1:
+            feature_names2 = feature_names2[1:]
+            for feature2 in feature_names2:
+                if (feature1 != feature2 and feature1 !=  "date" and feature2 != "date"):
+                    to_add = dataset[feature1] * dataset[feature2]
+                    dataset[feature1 + " * " + feature2] = to_add
         return dataset
 
     # convert series to supervised learning
@@ -208,7 +274,8 @@ class BatchModel(object):
 
         # Predict
         Predict = self.model.predict(self.test_X, verbose=1)
-        print(Predict)
+        #print(Predict)
+
         #csv results file
         with open('results.csv', 'w') as file:
             writer = csv.writer(file)
@@ -218,11 +285,16 @@ class BatchModel(object):
 
         # Plot
         sns.set()
+        fig, ax = plt.subplots(figsize=(11, 11))
         sns.heatmap(self.dataset.corr(), cmap='coolwarm')
 
+        self.put_dates_in_plot(self.test_y, Predict)
+
         fig = plt.figure(4)
-        Test, = plt.plot(self.pradict_data_dates, self.test_y)
-        Predict, = plt.plot(self.pradict_data_dates, Predict)
+        #Test, = plt.plot(self.pradict_data_dates, self.test_y)
+        Test, = plt.plot(self.test_y)
+        #Predict, = plt.plot(self.pradict_data_dates, Predict)
+        Predict, = plt.plot( Predict)
         plt.legend([Predict, Test], ["Predicted Data", "Real Data"])
         plt.xticks(rotation='vertical')
 
@@ -232,6 +304,19 @@ class BatchModel(object):
         #sns.regplot(Test, Predict)
         #sns.despine()
 
+    def put_dates_in_plot(self, test_y, Predict):
+        fig = plt.figure(4)
+        predict_data_dates = self.pradict_data_dates[1:]
+        test_y = self.test_y[1:]
+        Predict = Predict[1:]
+        Test, = plt.plot(predict_data_dates, test_y)
+        Predict, = plt.plot(predict_data_dates, Predict)
+        plt.legend([Predict, Test], ["Predicted Data", "Real Data"])
+        plt.xticks(rotation='vertical')
+
+        plt.show()
+
+
     def save_model(self):
         filename = 'finalized_model'+self.test_num+'.sav'
         joblib.dump(self.model, filename)
@@ -240,40 +325,40 @@ class BatchModel(object):
 def main(args=None):
     test_num = args.test_num
     dataPath = args.path
-    BM = BatchModel(test_num, dataPath)
-    values = BM.import_data(dataPath)
+    CM = ChunkedModel(test_num, dataPath)
+    values = CM.import_data(dataPath)
 
     if not os.path.isdir(dataPath + '\\' + test_num):
         os.mkdir(dataPath + '\\' + test_num)
 
-    BM.dataPath = dataPath + '\\' + test_num
-    values = BM.normalize_features(values)
+    CM.dataPath = dataPath + '\\' + test_num
+    values = CM.normalize_features(values)
 
 
 # chunks
     # chunks
-    n_days = 31 # in data path
+    n_days = 37 # in data path
     n_data_per_day = int(len(values) / n_days)
 # split the last days to predict
-    seq_data, seq_data_to_predict = BM.get_predict_sequences(values, args.prediction_size, n_data_per_day)
+    seq_data, seq_data_to_predict = CM.get_predict_sequences(values, args.prediction_size, n_data_per_day)
 # split the init days to create the model
-    init_seq, addition_data_seq = BM.get_init_sequences(seq_data, args.initialize_size, n_data_per_day)
-    BM.split_train_test(init_seq, args.train_size)
-    BM.create_model()
-    BM.fit_model(args.epochs, args.batch_size)
+    init_seq, addition_data_seq = CM.get_init_sequences(seq_data, args.initialize_size, n_data_per_day)
+    CM.split_train_test(init_seq, args.train_size)
+    CM.create_model()
+    CM.fit_model(args.epochs, args.batch_size)
     chunk_size = args.chunk_size #n_days
 # data array
-    chunked_data = BM.split_sequences(addition_data_seq, chunk_size*n_data_per_day)
+    chunked_data = CM.split_sequences(addition_data_seq, chunk_size*n_data_per_day)
 
     for chunk in chunked_data:
         if (len(chunk)<args.time_steps):
             break
-        BM.split_train_test(chunk, args.train_size)
-        BM.fit_model(args.epochs, args.batch_size)
+        CM.split_train_test(chunk, args.train_size)
+        CM.fit_model(args.epochs, args.batch_size)
 
-    BM.plot_history()
-    BM.make_a_prediction(seq_data_to_predict)
-    BM.save_model()
+    CM.plot_history()
+    CM.make_a_prediction(seq_data_to_predict)
+    CM.save_model()
 
 
 

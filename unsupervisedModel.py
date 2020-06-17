@@ -19,8 +19,6 @@ import argparse
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from tensorflow_core.compiler.tf2xla.python.xla import lt
 
-import LSTM_Model
-
 
 class unsupervisedModel(object):
 
@@ -29,17 +27,17 @@ class unsupervisedModel(object):
         f_path = dataPath + os.sep + "recommendation_requests_5m_rate_dc"
         dfs = [pd.read_csv(path.join(f_path, x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path, x))]
         dataset_5M = pd.concat(dfs)
-        dataset_5M.columns = ['date', 'feature1']
+        dataset_5M.columns = ['date', '5m']
         # combine all dates in P99
         f_path = dataPath + os.sep + "trc_requests_timer_p99_weighted_dc"
         dfs = [pd.read_csv(path.join(f_path, x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path, x))]
         dataset_P99 = pd.concat(dfs)
-        dataset_P99.columns = ['date', 'feature2']
+        dataset_P99.columns = ['date', 'p99']
         # combine all dates in P95
         f_path = dataPath + os.sep + "trc_requests_timer_p95_weighted_dc"
         dfs = [pd.read_csv(path.join(f_path, x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path, x))]
         dataset_P95 = pd.concat(dfs)
-        dataset_P95.columns = ['date', 'feature3']
+        dataset_P95.columns = ['date', 'p95']
         # combine all dates in failed_action
         f_path = dataPath + os.sep + "total_failed_action_conversions"
         dfs = [pd.read_csv(path.join(f_path, x)) for x in os.listdir(f_path) if path.isfile(path.join(f_path, x))]
@@ -51,7 +49,7 @@ class unsupervisedModel(object):
         dataset_SuccessAction = pd.concat(dfs)
         dataset_SuccessAction.columns = ['date', 'success_action']
         # merge
-        dfs = [dataset_5M, dataset_P99, dataset_P95, dataset_SuccessAction]
+        dfs = [dataset_5M, dataset_P99, dataset_P95, dataset_failedAction,dataset_SuccessAction]
         dataset = reduce(lambda left, right: pd.merge(left, right, on='date'), dfs)
         dataset.drop_duplicates(subset=None, inplace=True)
 
@@ -110,7 +108,7 @@ class unsupervisedModel(object):
             ys.append(y.iloc[i + time_steps])
         return np.array(Xs), np.array(ys)
 
-    def create_model(self):
+    def create_model(self, epochs_in, bach_size_in):
         # define model
         self.model = Sequential()
         self.model.add(LSTM(args.n_nodes, input_shape=(self.train_X.shape[1], self.train_X.shape[2])))
@@ -121,7 +119,7 @@ class unsupervisedModel(object):
         self.model.add(TimeDistributed(Dense(self.train_X.shape[2])))
         self.model.compile(optimizer='adam', loss='mae')
         # fit network
-        self.history = self.model.fit(self.train_X, self.train_y, epochs=10, batch_size=32, validation_split=0.1, shuffle=False)
+        self.history = self.model.fit(self.train_X, self.train_y, epochs=epochs_in, batch_size=bach_size_in, validation_split=0.1, shuffle=False)
 
     # returns train, inference_encoder and inference_decoder models
     def define_models(self, n_input, n_output, n_units):
@@ -157,51 +155,93 @@ class unsupervisedModel(object):
         pyplot.legend()
         pyplot.show()
 
-    def prediction(self, test, THRESHOLD):
-        X_train_pred = self.model.predict(self.train_X)
-        train_mae_loss = np.mean(np.abs(X_train_pred - self.train_X), axis=1)
-        sns.distplot(train_mae_loss[:,3], bins=50, kde=True) #total success action[:,3]
-        plt.show()
+    def prediction(self, test):
+        # X_train_pred = self.model.predict(self.train_X)
+        # train_mae_loss = np.mean(np.abs(X_train_pred - self.train_X), axis=1)
+        # train_mae_loss_avg_vector = np.mean(train_mae_loss, axis=1)
+        # sns.distplot(train_mae_loss_avg_vector, bins=50, kde=True)
+        # plt.show()
 
         X_test_pred = self.model.predict(self.test_X)
         test_mae_loss = np.mean(np.abs(X_test_pred - self.test_X), axis=1)
-        test_score_df = pd.DataFrame(index=test.index)
-        test_score_df['loss'] = test_mae_loss[:,3] #total success action[:,3]
+        test_mae_loss_avg_vector = np.mean(test_mae_loss, axis=1)
+        # test_score_df = pd.DataFrame(index=test.index)
+        test_score_df = pd.DataFrame()
+        test_score_df['loss'] = test_mae_loss_avg_vector
+        THRESHOLD = np.mean(test_mae_loss_avg_vector) + 2*np.std(test_mae_loss_avg_vector)
         test_score_df['threshold'] = THRESHOLD
-        test_score_df['anomaly'] = test_score_df.loss > test_score_df.threshold
-        test_score_df['success_action'] = test['success_action']
+        test_score_df['global_anomaly'] = test_score_df.loss > test_score_df.threshold
+        # test_score_df['success_action'] = test['success_action']
 
         self.test_score_df = test_score_df
         self.test = test
+        self.test_mae_loss = test_mae_loss
         # plot
-        plt.plot(test_score_df.index, test_score_df.loss, label='loss')
+        plt.plot(test_score_df.index, test_score_df.loss, label='avg loss')
         plt.plot(test_score_df.index, test_score_df.threshold, label='threshold')
         plt.xticks(rotation=25)
         plt.legend()
         plt.show()
 
-    def anomalies(self):
-        anomalies = self.test_score_df[self.test_score_df.anomaly == True]
-        anomalies.head()
+    def anomalies(self, metrics_names):
+        test_score_df = self.test_score_df
+        metric_index = 0
+        for metric in metrics_names:
+            test_score_df[metric+'_loss'] = self.test_mae_loss[:, metric_index]
+            THRESHOLD = np.mean(test_score_df[metric+'_loss']) + 2 * np.std(test_score_df[metric+'_loss'])
+            test_score_df['self_anomaly'] = test_score_df[metric+'_loss'] > THRESHOLD
+            test_score_df[metric] = self.test[metric]
+            global_anomalies = self.test_score_df[self.test_score_df.global_anomaly == True]
+            global_anomalies.head()
+            self_anomalies = self.test_score_df[self.test_score_df.self_anomaly == True]
+            self_anomalies.head()
+            both_anomalies = self.test_score_df[self.test_score_df.self_anomaly & self.test_score_df.global_anomaly]
+            both_anomalies.head()
 
-        plt.plot(
-            self.test.index,
-            # self.scaler.inverse_transform(self.test.success_action),
-            self.test.success_action,
-            label='success_action'
-        );
+            plt.plot(
+                self.test.index,
+                # self.scaler.inverse_transform(self.test.success_action),
 
-        sns.scatterplot(
-            anomalies.index,
-            # self.scaler.inverse_transform(anomalies.success_action),
-            anomalies.success_action,
-            color=sns.color_palette()[3],
-            s=52,
-            label='anomaly'
-        )
-        plt.xticks(rotation=25)
-        plt.legend()
-        plt.show()
+                # self.test.success_action,
+                # label='success_action'
+                self.test[metric],
+                label=metric
+            );
+
+
+            sns.scatterplot(
+                self_anomalies.index,
+                # self.scaler.inverse_transform(anomalies.success_action),
+
+                # global_anomalies.success_action,
+                self_anomalies[metric],
+                color=sns.color_palette()[2],
+                s=52,
+                label='local_anomaly'
+            )
+            sns.scatterplot(
+                global_anomalies.index,
+                # self.scaler.inverse_transform(anomalies.success_action),
+
+                # global_anomalies.success_action,
+                global_anomalies[metric],
+                color=sns.color_palette()[3],
+                s=52,
+                label='global_anomaly'
+            )
+            sns.scatterplot(
+                both_anomalies.index,
+                # self.scaler.inverse_transform(anomalies.success_action),
+
+                # global_anomalies.success_action,
+                both_anomalies[metric],
+                color=sns.color_palette()[1],
+                s=52,
+                label='both_anomaly'
+            )
+            plt.xticks(rotation=25)
+            plt.legend()
+            plt.show()
 
 def main(args=None):
 
@@ -219,23 +259,26 @@ def main(args=None):
 
     plt.plot(df)
 
-    plt.legend(["5M", "P99", "P95", "success action"])
+    plt.legend(["5M", "P99", "P95", "failed action", "success action"])
     plt.xticks(rotation='vertical')
 
     plt.show()
 
+    TIMESTESPS = 3
+
     df = UM.normalize_features(df)
     values = df.values
-    train_size = int (args.train_size*len(df))
+    train_size = int(args.train_size*len(df))
     test_size = len(df) - train_size
     train, test = df.iloc[0:train_size], df.iloc[train_size:len(df)]
+    test_x = test[0:TIMESTESPS]
 
-    UM.split_train_test(values, args.train_size, time_steps=0)
-    UM.create_model()
+    UM.split_train_test(values, args.train_size, time_steps=3)
+    UM.create_model(args.epochs, args.batch_size)
     UM.plot_history()
-    THRESHOLD = 0.3
-    UM.prediction(test, THRESHOLD)
-    UM.anomalies()
+    UM.prediction(test)
+    metrics_names = df.columns
+    UM.anomalies(metrics_names)
 
 
 

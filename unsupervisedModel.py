@@ -163,12 +163,16 @@ class unsupervisedModel(object):
         # plt.show()
 
         X_test_pred = self.model.predict(self.test_X)
-        test_mae_loss = np.mean(np.abs(X_test_pred - self.test_X), axis=1)
+
+        test = test[:len(X_test_pred)]
+
+        test_mae_loss = np.mean(np.abs(X_test_pred - self.test_y), axis=1) #test_y or test_X????
         test_mae_loss_avg_vector = np.mean(test_mae_loss, axis=1)
-        # test_score_df = pd.DataFrame(index=test.index)
-        test_score_df = pd.DataFrame()
+        test_score_df = pd.DataFrame(index=test.index)
+        # test_score_df = pd.DataFrame()
         test_score_df['loss'] = test_mae_loss_avg_vector
-        THRESHOLD = np.mean(test_mae_loss_avg_vector) + 2*np.std(test_mae_loss_avg_vector)
+        THRESHOLD = np.mean(test_mae_loss_avg_vector) + 3*np.std(test_mae_loss_avg_vector)
+        exp_mean = test_mae_loss_avg_vector.ewm(span=20, adjust=False).mean()
         test_score_df['threshold'] = THRESHOLD
         test_score_df['global_anomaly'] = test_score_df.loss > test_score_df.threshold
         # test_score_df['success_action'] = test['success_action']
@@ -188,7 +192,8 @@ class unsupervisedModel(object):
         metric_index = 0
         for metric in metrics_names:
             test_score_df[metric+'_loss'] = self.test_mae_loss[:, metric_index]
-            THRESHOLD = np.mean(test_score_df[metric+'_loss']) + 2 * np.std(test_score_df[metric+'_loss'])
+            THRESHOLD = np.mean(test_score_df[metric+'_loss']) + 3 * np.std(test_score_df[metric+'_loss'])
+            exp_mean = test_score_df[metric+'_loss'].ewm(span=20, adjust=False).mean()
             test_score_df['self_anomaly'] = test_score_df[metric+'_loss'] > THRESHOLD
             test_score_df[metric] = self.test[metric]
             global_anomalies = self.test_score_df[self.test_score_df.global_anomaly == True]
@@ -235,7 +240,7 @@ class unsupervisedModel(object):
 
                 # global_anomalies.success_action,
                 both_anomalies[metric],
-                color=sns.color_palette()[1],
+                color=sns.color_palette("husl", 8)[7],
                 s=52,
                 label='both_anomaly'
             )
@@ -264,16 +269,17 @@ def main(args=None):
 
     plt.show()
 
-    TIMESTESPS = 3
+    TIMESTESPS = 2
 
     df = UM.normalize_features(df)
     values = df.values
-    train_size = int(args.train_size*len(df))
+
+    train_size = int(args.train_size * (len(df)))
     test_size = len(df) - train_size
     train, test = df.iloc[0:train_size], df.iloc[train_size:len(df)]
-    test_x = test[0:TIMESTESPS]
+    test_x = test[0:len(test)-TIMESTESPS]
 
-    UM.split_train_test(values, args.train_size, time_steps=3)
+    UM.split_train_test(values, args.train_size, time_steps=TIMESTESPS)
     UM.create_model(args.epochs, args.batch_size)
     UM.plot_history()
     UM.prediction(test)

@@ -55,7 +55,7 @@ class unsupervisedModel(object):
 
         self.dates = pd.to_datetime(dataset['date'], format='%Y-%m-%dT%H:%M:%S')
         dataset.drop(['date'], 1, inplace=True)
-        # dataset.set_index(self.dates, inplace=True)
+        dataset.set_index(self.dates, inplace=True)
         self.dataset = dataset
         return dataset
 
@@ -172,9 +172,12 @@ class unsupervisedModel(object):
         # test_score_df = pd.DataFrame()
         test_score_df['loss'] = test_mae_loss_avg_vector
         THRESHOLD = np.mean(test_mae_loss_avg_vector) + 3*np.std(test_mae_loss_avg_vector)
-        exp_mean = test_mae_loss_avg_vector.ewm(span=20, adjust=False).mean()
+        exp_mean = test_score_df['loss'].ewm(com=0.5).mean() + 1 * np.std(test_mae_loss_avg_vector)
+        rolling_mean = test_score_df['loss'].rolling(window=120).mean() + 3*np.std(test_mae_loss_avg_vector)
+        test_score_df['rolling_mean'] = rolling_mean
+        test_score_df['exp_mean'] = exp_mean
         test_score_df['threshold'] = THRESHOLD
-        test_score_df['global_anomaly'] = test_score_df.loss > test_score_df.threshold
+        test_score_df['global_anomaly'] = test_score_df.loss > test_score_df.exp_mean
         # test_score_df['success_action'] = test['success_action']
 
         self.test_score_df = test_score_df
@@ -182,7 +185,9 @@ class unsupervisedModel(object):
         self.test_mae_loss = test_mae_loss
         # plot
         plt.plot(test_score_df.index, test_score_df.loss, label='avg loss')
+        plt.plot(test_score_df.index, test_score_df.rolling_mean, label='rolling_mean')
         plt.plot(test_score_df.index, test_score_df.threshold, label='threshold')
+        plt.plot(test_score_df.index, test_score_df.exp_mean, label='exp_mean')
         plt.xticks(rotation=25)
         plt.legend()
         plt.show()
@@ -192,9 +197,11 @@ class unsupervisedModel(object):
         metric_index = 0
         for metric in metrics_names:
             test_score_df[metric+'_loss'] = self.test_mae_loss[:, metric_index]
+            metric_index = metric_index + 1
             THRESHOLD = np.mean(test_score_df[metric+'_loss']) + 3 * np.std(test_score_df[metric+'_loss'])
-            exp_mean = test_score_df[metric+'_loss'].ewm(span=20, adjust=False).mean()
-            test_score_df['self_anomaly'] = test_score_df[metric+'_loss'] > THRESHOLD
+            exp_mean = test_score_df[metric+'_loss'].ewm(com=0.5).mean() + 1 * np.std(test_score_df[metric+'_loss'])
+            # rolling_mean = test_score_df[metric+'_loss'].rolling(window=120).mean() + 3 * np.std(test_score_df[metric+'_loss'])
+            test_score_df['self_anomaly'] = test_score_df[metric+'_loss'] > exp_mean
             test_score_df[metric] = self.test[metric]
             global_anomalies = self.test_score_df[self.test_score_df.global_anomaly == True]
             global_anomalies.head()
@@ -203,12 +210,20 @@ class unsupervisedModel(object):
             both_anomalies = self.test_score_df[self.test_score_df.self_anomaly & self.test_score_df.global_anomaly]
             both_anomalies.head()
 
+            test_p = self.test[1200:]
+            self_anomalies_p = self_anomalies[1200:]
+            global_anomalies_p = global_anomalies[1200:]
+            both_anomalies_p = both_anomalies[1200:]
+
+
             plt.plot(
                 self.test.index,
+                # test_p.index,
                 # self.scaler.inverse_transform(self.test.success_action),
 
                 # self.test.success_action,
                 # label='success_action'
+                # test_p[metric],
                 self.test[metric],
                 label=metric
             );
@@ -216,9 +231,11 @@ class unsupervisedModel(object):
 
             sns.scatterplot(
                 self_anomalies.index,
+                # self_anomalies_p.index,
                 # self.scaler.inverse_transform(anomalies.success_action),
 
                 # global_anomalies.success_action,
+                # self_anomalies_p[metric],
                 self_anomalies[metric],
                 color=sns.color_palette()[2],
                 s=52,
@@ -226,19 +243,110 @@ class unsupervisedModel(object):
             )
             sns.scatterplot(
                 global_anomalies.index,
+                # global_anomalies_p.index,
                 # self.scaler.inverse_transform(anomalies.success_action),
 
                 # global_anomalies.success_action,
+                # global_anomalies_p[metric],
                 global_anomalies[metric],
-                color=sns.color_palette()[3],
+                color=sns.color_palette()[8],
                 s=52,
                 label='global_anomaly'
             )
             sns.scatterplot(
                 both_anomalies.index,
+                # both_anomalies_p.index,
                 # self.scaler.inverse_transform(anomalies.success_action),
 
                 # global_anomalies.success_action,
+                # both_anomalies_p[metric],
+                both_anomalies[metric],
+                color=sns.color_palette("husl", 8)[7],
+                s=52,
+                label='both_anomaly'
+            )
+            plt.xticks(rotation=25)
+            plt.legend()
+            plt.show()
+
+    def plots(self, metrics_names, start_date, end_date):
+        test_score_df = self.test_score_df
+
+        metric_index = 0
+        for metric in metrics_names:
+            self.test_score_df[metric + '_loss'] = self.test_mae_loss[:, metric_index]
+            metric_index = metric_index + 1
+
+        test_score_df = self.test_score_df.loc[start_date:end_date]
+        self.test = self.test[start_date:end_date]
+
+        # metric_index = 0
+        for metric in metrics_names:
+            # test_score_df[metric + '_loss'] = self.test_mae_loss[:, metric_index]
+            THRESHOLD = np.mean(test_score_df[metric + '_loss']) + 3 * np.std(test_score_df[metric + '_loss'])
+            exp_mean = test_score_df[metric + '_loss'].ewm(com=0.5).mean() + 1 * np.std(test_score_df[metric + '_loss'])
+            # rolling_mean = test_score_df[metric+'_loss'].rolling(window=120).mean() + 3 * np.std(test_score_df[metric+'_loss'])
+            self.test_score_df['self_anomaly'] = test_score_df[metric + '_loss'] > exp_mean
+            self.test_score_df[metric] = self.test[metric]
+            global_anomalies = self.test_score_df[self.test_score_df.global_anomaly == True]
+            global_anomalies.head()
+            self_anomalies = self.test_score_df[self.test_score_df.self_anomaly == True]
+            self_anomalies.head()
+            both_anomalies = self.test_score_df[self.test_score_df.self_anomaly & self.test_score_df.global_anomaly]
+            both_anomalies.head()
+
+            test_p = self.test[1200:]
+            self_anomalies_p = self_anomalies[1200:]
+            global_anomalies_p = global_anomalies[1200:]
+            both_anomalies_p = both_anomalies[1200:]
+
+            self.self_anomalies = self_anomalies
+            self.global_anomalies = global_anomalies
+            self.both_anomalies = both_anomalies
+
+            plt.plot(
+                self.test.index,
+                # test_p.index,
+                # self.scaler.inverse_transform(self.test.success_action),
+
+                # self.test.success_action,
+                # label='success_action'
+                # test_p[metric],
+                self.test[metric],
+                label=metric
+            );
+
+            sns.scatterplot(
+                self_anomalies.index,
+                # self_anomalies_p.index,
+                # self.scaler.inverse_transform(anomalies.success_action),
+
+                # global_anomalies.success_action,
+                # self_anomalies_p[metric],
+                self_anomalies[metric],
+                color=sns.color_palette()[2],
+                s=52,
+                label='local_anomaly'
+            )
+            sns.scatterplot(
+                global_anomalies.index,
+                # global_anomalies_p.index,
+                # self.scaler.inverse_transform(anomalies.success_action),
+
+                # global_anomalies.success_action,
+                # global_anomalies_p[metric],
+                global_anomalies[metric],
+                color=sns.color_palette()[8],
+                s=52,
+                label='global_anomaly'
+            )
+            sns.scatterplot(
+                both_anomalies.index,
+                # both_anomalies_p.index,
+                # self.scaler.inverse_transform(anomalies.success_action),
+
+                # global_anomalies.success_action,
+                # both_anomalies_p[metric],
                 both_anomalies[metric],
                 color=sns.color_palette("husl", 8)[7],
                 s=52,
@@ -269,7 +377,7 @@ def main(args=None):
 
     plt.show()
 
-    TIMESTESPS = 2
+    TIMESTESPS = 6
 
     df = UM.normalize_features(df)
     values = df.values
@@ -284,7 +392,12 @@ def main(args=None):
     UM.plot_history()
     UM.prediction(test)
     metrics_names = df.columns
+
     UM.anomalies(metrics_names)
+    
+    start_date = pd.datetime(2020, 6, 1)
+    end_date = pd.datetime(2020, 6, 2)
+    UM.plots(metrics_names, start_date, end_date)
 
 
 
